@@ -1,1 +1,1 @@
-The two random forest models will be sotred here.
+The models were too large to be uploaded into github. even in their zip format.
