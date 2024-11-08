@@ -1,0 +1,202 @@
+---
+title: "Milestone2_Feature_Selection"
+author: Nosipho Precious Donkrag, Nontsikelelo Sharon Buhlungu, Tshepang Mogosi, Pitsi
+  Pitsi
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Milestone2_Feature_Selection
+
+Aim: 
+- Decide which columns to keep for model training;
+- Ensure all columns sent to the ml model are of numeric nature.
+
+```{r}
+setwd("C:/Users/nosip/Documents/third Year/BIN381/milestones")
+```
+
+
+```{r}
+library(readr)
+library(ggplot2)
+library(dplyr)
+library(ggcorrplot)
+library(fastDummies)
+library(corrplot)
+```
+
+## Read in data:
+```{r}
+data_df <- read_csv("cleaned_cust.csv", show_col_types = FALSE)
+
+```
+
+```{r}
+names(data_df)
+```
+
+## Cardinality
+High cardinality refers to columns that have too many unique values; machine learning models can not be trained on such data as this data may cause Over-fitting, increase in dimensions, data leakage (when the model gains access to data used for testing or validation during training).
+
+### High cardinal columns: Columns to remove
+- street_address
+- postal_code
+- city
+- state_province
+- phone_number
+- email
+- Country_id
+These columns will not be added to the data sent to the ml model.
+```{r}
+columns_to_exclude <- c("street_address", "postal_code", "city", 
+                        "state_province", "phone_number", "email", "Country_id")
+
+
+data_for_ml <- data_df[ , !(names(data_df) %in% columns_to_exclude)]
+
+```
+
+```{r}
+head(data_for_ml)
+```
+The following columns contain non-numeric data and this data will be transformed.
+```{r}
+non_numeric_columns <- sapply(data_for_ml, is.character) | sapply(data_for_ml, is.factor)
+
+non_numeric_data <- data_for_ml[ , non_numeric_columns]
+
+print(colnames(non_numeric_data))
+```
+### Leaky Feature: Occupation
+```{r}
+unique_occupation <- unique(data_for_ml$Occupation)
+unique_occupation
+```
+Data from education leaked into the Occupation column, this data must be removed.
+```{r}
+values_to_drop <- c("Masters", "Bach.", "HS-grad")
+data_for_ml <- data_for_ml[!data_for_ml$Occupation %in% values_to_drop, ]
+```
+
+```{r}
+occupation_counts <- table(data_for_ml$Occupation)
+
+non_unique_occupation <- names(occupation_counts[occupation_counts > 1])
+
+print(non_unique_occupation)
+```
+## Education
+Education still contains some inconsistent data;
+this is because the data type is character so when it was null (no education); the inconsistent data leaked into this column.
+```{r}
+
+#unique values in Education
+unique_education <- unique(non_numeric_data$Education)
+print(unique_education[1:10])
+```
+Education
+```{r}
+rows_to_drop <- grepl("\\.com$", data_for_ml$Education)
+data_for_ml <- data_for_ml[!rows_to_drop, ]
+
+```
+
+
+```{r}
+unique_education <- unique(data_for_ml$Education)
+print(unique_education)
+```
+### Contingency Table: 
+```{r}
+contingency_table <- table(data_for_ml$Education, data_for_ml$Qualify)
+
+print(contingency_table)
+```
+Majority of qualifying customers hold a Bachelor's degree.
+
+# Data Transformation
+
+## Data Transformation: Education
+Covert the column education to numeric by one hot encoding: 
+```{r}
+library(fastDummies)
+data_for_ml <- dummy_cols(data_for_ml, 
+                          select_columns = "Education", 
+                          remove_first_dummy = FALSE, 
+                          remove_selected_columns = TRUE)
+```
+
+
+## Data Transformation: Occupation
+To change this column into a numeric column One-hot Encoding will be utilized: 
+```{r}
+# Apply one-hot encoding to the 'Occupation' column
+data_for_ml <- dummy_cols(data_for_ml, 
+                          select_columns = "Occupation", 
+                          remove_first_dummy = FALSE, 
+                          remove_selected_columns = TRUE)
+```
+
+```{r}
+colnames(data_for_ml)
+```
+
+## Feature Engineering: Replace Years of Birth with Age
+
+```{r}
+current_year <- as.numeric(format(Sys.Date(), "%Y"))
+
+data_for_ml$age <- current_year - data_for_ml$Year_of_Birth
+
+# Remove the Year_of_Birth
+data_for_ml$Year_of_Birth <- NULL
+```
+
+```{r}
+head(data_for_ml)
+```
+## Correllation Matrix
+The correlation matrix will be used to determine which columns to keep:
+```{r}
+cor_matrix <- cor(data_for_ml, use = "complete.obs")
+```
+
+Extract the correlation with the target variable:
+```{r}
+qualify_correlations <- cor_matrix[, "Qualify"]
+
+#filter
+high_correlations <- qualify_correlations[abs(qualify_correlations) > 0.2]
+```
+
+create a correlation matrix with the target:
+
+```{r}
+
+# Create the correlation plot
+corrplot(cor_matrix, 
+         method = "color",         # Use color for the correlation coefficients
+         type = "full",            # Show the entire matrix
+         tl.col = "black",         # Color of the text labels
+         tl.srt = 45,              # Rotate text labels
+         addCoef.col = "black",    # Add correlation coefficients in black
+         number.cex = 0.5,         # Increase size of the coefficient numbers
+         col = colorRampPalette(c("red", "white", "blue"))(200),  # Color gradient
+         title = "Correlation Matrix", # Set title
+         mar = c(0, 0, 2, 0)       # Margins for the plot
+)
+```
+The education columns seem correlated with the occupation columns; however the target variable does not seem correlated with any of the columns, thus it would be risky to remove any columns as of yet. marital status is slightly positively correlated with age. The older the person the more likeliness of them being married. 
+
+the data has been prepared for the ml algorithm, the different algorithms that will be implemented will shed light on the feature importance that exists within the dataset.
+
+#Save dataset
+```{r}
+write.csv(data_for_ml, file = "data_for_ml.csv", row.names = FALSE)
+```
+

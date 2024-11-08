@@ -1,0 +1,551 @@
+---
+title: "BIN381 Milestone 2"
+author: Nosipho Precious Donkrag, Nontsikelelo Sharon Buhlungu, Tshepang Mogosi, Pitsi
+  Pitsi
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Milestone 2: Data Fromatting and cleaning
+libraries:
+```{r}
+library(ggplot2)
+```
+
+
+## Column headers
+Form data understanding it was seen that the column names have been shifted resulting in some columns having 'NA' column names. Hence, when the csv is read it will be given default column names.
+
+```{r cars}
+setwd("C:/Users/nosip/Documents/third Year/BIN381/milestones")
+data <- read.csv("CustData2.csv",
+header = FALSE,
+na.strings = c("", "NA"),
+fill = TRUE)
+#Give columns a default name names
+colnames(data) <- paste0("Default_col_Name", seq_len(ncol(data)))
+
+
+```
+The actual column names are stored in the second row of the dataset. these will be extracted next and the default column names will be replacced with the actual column names.
+```{r}
+new_col_names <- as.character(data[1, ])
+# drop the first row
+
+data <- data[-1, ]
+#replace the default column names with the correct ones
+colnames(data) <- new_col_names
+head(data, n=5)
+```
+
+### Correct column Mapping:
+A mapping was created from data understanding that maps the shifted columns to their correct data.
+
+```{r pressure, echo=FALSE}
+col_names_map <- data.frame(
+  `Current colum name` = c("state_province", "Country_id", "phone_number", "email", "Education", "Occupation", "household_size", "yrs_residence", NA,NA,NA,NA),
+  `Correct colum name` = c("marital_status", "street_address", "postal_code", "city", "state_province","Country_id", "phone_number", "email", "Education", "Occupation", "household_size","yrs_residence")
+)
+
+print(col_names_map)
+```
+
+create a new dataframe with the correct columns:
+```{r}
+data_df <- data.frame(
+  marital_status = data$state_province,
+  street_address   = data$Country_id,
+  postal_code      = data$phone_number,
+  city             = data$email,
+  state_province   = data$Education,
+  Country_id       = data$Occupation,
+  phone_number     = data$household_size,
+  email            = data$yrs_residence,
+    Education        = data[[14]],
+  Occupation       = data[[15]],
+  household_size   = data[[16]],
+  yrs_of_residence    = data[[17]]
+  
+)
+head(data_df, n = 3)
+```
+The above columns have been correctly associated with their data and stored in the new data frame: data_df. 
+
+### The long column name (column 1)
+The first column name in the data holds the column names of multiple columns. 
+here are the column names in the first column of the data:
+```{r}
+long_col_name <- colnames(data)[1]
+
+split_names <- strsplit(long_col_name, ";")[[1]]
+cat(split_names, sep = "\n")
+
+```
+### Create new columns from the first column
+
+```{r}
+#split the data using a sep: ;
+split_data <- strsplit(data[,1], ";")
+
+#convert into a dataframe
+split_df <- do.call(rbind, split_data)
+```
+The above warning suggests that, in the semi-colon separated data there is some missing values; the semi-colon separated data in the first column holds the data of the following columns: (if there are missing values the data will not be symmetrical as it is being read).
+
+- id
+- Last.Name
+- First.Name
+- Middle.Initial
+- Title
+- Department.Name
+- Age
+
+all these variables are unique and thus will not be used to train the machine learning model. the only variable that could be of interest is Age; however the age can be calculated from the column holding the year of birth. hence, to avoid offsetting the data, as the warning suggests this will happen, this whole column can be thrown away.  
+
+## Numeric columns
+the first numeric column holds the annual salary and the months related to the annual salary, seperated by a semi-colomn. these will be extracted.
+```{r}
+library(dplyr)
+```
+
+```{r}
+#replace NA values with NA,NA to help with the splitting
+data[[names(data)[2]]] <- ifelse(is.na(data[[names(data)[2]]]), "NA;NA", data[[names(data)[2]]])
+```
+
+split the values in this column into annual salary and annual months (months related to the annual salary).
+```{r}
+split_values <- strsplit(data[[names(data)[2]]], ";")
+```
+
+```{r}
+#Inconsistent entries
+problematic_entries <- which(lengths(split_values) != 2)
+#data[problematic_entries, names(data)[2]]
+head(length(problematic_entries))
+```
+There is inconsistent data that will affect the splitting, this data will be dropped from data.
+```{r}
+valid_indices <- which(lengths(split_values) == 2)
+data <- data[valid_indices, ]
+```
+
+size of new data:
+```{r}
+print(nrow(data))
+```
+```{r}
+split_values <- strsplit(data[[names(data)[2]]], ";")
+split_matrix <- matrix(unlist(split_values), ncol = 2, byrow = TRUE)
+split_df <- as.data.frame(split_matrix, stringsAsFactors = FALSE)
+```
+
+```{r}
+colnames(split_df) <- c("Annual_Salary", "Months_Annual")
+```
+
+view the first 5 entries in split_df:
+
+```{r}
+head(split_df, n = 5)
+```
+To ensure consistency drop these rows from data_df.
+```{r}
+data_df <- data_df[valid_indices, ]
+nrow(data)
+nrow(data_df)
+```
+combine the 2 data frames.
+```{r}
+data_df <- cbind(data_df, split_df)
+
+```
+
+```{r}
+head(data_df, n = 5)
+```
+### FRS.Contribution and Year of birth
+the data in the column number 5, is the FRS contributions and year of birth.
+```{r}
+print(data[1:5, 5])
+```
+```{r}
+split_frs_yob <- strsplit(data[[5]], ";")
+valid_rows <- sapply(split_frs_yob, function(x) length(x) == 2)
+```
+
+```{r}
+print(length(valid_rows))
+```
+drop inconsistent rows
+```{r}
+data <- data[valid_rows, ]
+data_df <- data_df[valid_rows, ]
+```
+
+Check if the data frames are still aligned.
+```{r}
+nrow(data)
+nrow(data_df)
+```
+```{r}
+split_frs_yob_matrix <- matrix(unlist(split_frs_yob[valid_rows]), ncol = 2, byrow = TRUE)
+data_df$FRS.Contribution <- split_frs_yob_matrix[, 1]
+data_df$Year_of_Birth <- split_frs_yob_matrix[, 2]
+```
+
+```{r}
+head(data_df)
+#nrow(data_df)
+```
+### Net salary column
+the net salary to date column:
+```{r}
+split_net_months <- strsplit(data[[3]], ";")
+valid_rows <- sapply(split_net_months, function(x) length(x) == 2)
+```
+
+```{r}
+print(sum(valid_rows))
+```
+drop inconsistent rows
+```{r}
+data <- data[valid_rows, ]
+data_df <- data_df[valid_rows, ]
+```
+
+```{r}
+nrow(data)
+nrow(data_df)
+```
+```{r}
+split_net_nMonths_matrix <- matrix(unlist(split_net_months[valid_rows]), ncol = 2, byrow = TRUE)
+
+data_df$Net_Salary <- split_net_nMonths_matrix[, 1]
+data_df$Net_months <- split_net_nMonths_matrix[, 2]
+```
+
+```{r}
+nrow(data_df)
+```
+
+```{r}
+head(data_df[16:18])
+```
+the annual salary, net salary and the FRS contributions have been accounted for, there is still the gross salary to go. we expect the gross to be the highest for the 3 numeric columns. 
+
+```{r}
+
+print(data[1:10,4])
+
+```
+```{r}
+split_gross_months <- strsplit(data[[4]], ";")
+
+valid_gross_rows <- sapply(split_gross_months, function(x) length(x) == 2)
+
+print(sum(valid_gross_rows))
+
+data <- data[valid_gross_rows, ]
+data_df <- data_df[valid_gross_rows, ]
+```
+
+```{r}
+nrow(data)
+nrow(data_df)
+
+```
+
+```{r}
+split_gross_matrix <- matrix(unlist(split_gross_months[valid_gross_rows]), ncol = 2, byrow = TRUE)
+
+data_df$Gross_Salary <- split_gross_matrix[, 1]
+data_df$Gross_Months <- split_gross_matrix[, 2]
+
+```
+
+```{r}
+head(data_df)
+```
+```{r}
+names(data_df)
+```
+## Convert Expected numeric columns to numeric:
+```{r}
+numeric_columns <- c("Annual_Salary", "Months_Annual", "FRS.Contribution", 
+                     "Year_of_Birth", "Net_Salary", "Net_months", 
+                     "Gross_Salary", "Gross_Months", 
+                     "household_size", "yrs_of_residence", "postal_code")
+
+data_df[numeric_columns] <- lapply(data_df[numeric_columns], function(x) as.numeric(as.character(x)))
+
+```
+
+
+```{r}
+# Check the structure of the data to verify conversion
+summary(data_df)
+```
+
+The above code has introduced NA values, these will be dealt with accordingly.
+
+## Missing Values
+Lets view the total number of missing values for each column:
+```{r}
+missing_values_summary <- list()
+
+for (col_name in names(data_df)) {
+  total_missing <- sum(is.na(data_df[[col_name]]))
+  
+  missing_values_summary[[col_name]] <- total_missing
+}
+
+missing_values_df <- data.frame(
+  Column = names(missing_values_summary),
+  Total_Missing_Values = unlist(missing_values_summary)
+)
+
+print(missing_values_df)
+
+```
+### Imputation of missing values
+
+Continuous columns that will be filled with the mean:
+- Annual_Salary
+- Months_Annual (12.5 months is a valid entry and refers to 1 year and 6 months hence it is continuous)
+- Net_Salary
+
+Distinct columns that will be filled with the mode:
+- yrs_of_residence
+- Education
+- household_size
+- marital_status (mist convert to numeric first)
+
+```{r}
+data_df$marital_status[1:10]
+```
+this column still has inconsistent values that need to be removed:
+```{r}
+
+valid_marital_status <- c("married", "single", "divorced", NA)
+
+# valid marital status
+valid_rows <- data_df$marital_status %in% valid_marital_status
+
+# Drop inconsistent rows
+data_df <- data_df[valid_rows, ]
+
+```
+
+```{r}
+# Check the result to see if there is still enough
+#data to train the model
+nrow(data_df)
+```
+convert this column to numeric
+```{r}
+marital_mapping <- c("married" = 2, "single" = 1)
+
+data_df$marital_status <- as.numeric(factor(data_df$marital_status, 
+                                                    levels = names(marital_mapping), 
+                                                    labels = marital_mapping))
+
+```
+
+```{r}
+# Check the result
+head(data_df[, c("marital_status")], n = 5)
+```
+replace missing values with the mode
+```{r}
+mode_marital_status <- data_df %>%
+  summarise(mode = as.numeric(names(which.max(table(marital_status))))) %>%
+  pull(mode)
+```
+
+```{r}
+#Replace NA values
+data_df$marital_status[is.na(data_df$marital_status)] <- mode_marital_status
+
+```
+
+```{r}
+head(data_df[, c("marital_status")], n = 5)
+```
+#### Replace missing values with the mean for the following columns:
+- "Annual_Salary"
+- "Months_Annual"
+- "Net_Salary"
+```{r}
+# Function to calculate mean and replace NA values
+replace_na_with_mean <- function(column) {
+  mean_value <- mean(column, na.rm = TRUE)
+  column[is.na(column)] <- mean_value
+  return(column)
+}
+
+# Apply to the numeric columns
+data_df$Annual_Salary <- replace_na_with_mean(data_df$Annual_Salary)
+data_df$Months_Annual <- replace_na_with_mean(data_df$Months_Annual)
+data_df$Net_Salary <- replace_na_with_mean(data_df$Net_Salary)
+
+```
+
+```{r}
+head(data_df[, c("Annual_Salary", "Months_Annual", "Net_Salary")], n = 5)
+
+```
+#### Replace missing values with the mode for the following columns:
+- "household_size"
+- "Education"
+- "yrs_of_residence"
+```{r}
+calculate_mode <- function(column) {
+  as.numeric(names(which.max(table(column))))
+}
+
+
+data_df$yrs_of_residence[is.na(data_df$yrs_of_residence)] <- calculate_mode(data_df$yrs_of_residence)
+data_df$Education[is.na(data_df$Education)] <- calculate_mode(data_df$Education)
+data_df$household_size[is.na(data_df$household_size)] <- calculate_mode(data_df$household_size)
+
+```
+
+```{r}
+head(data_df[, c("yrs_of_residence", "Education", "household_size")], n = 5)
+```
+NA are introduced because of inconsistent data, so we have to check for them:
+```{r}
+sum(is.na(data_df$yrs_of_residence))
+sum(is.na(data_df$Education))
+sum(is.na(data_df$household_size))
+```
+### Viewing the final Structure of the data
+```{r}
+data_types <- data.frame(
+  Column = names(data_df),
+  Data_Type = sapply(data_df, class)
+)
+
+# Print the table of data types
+print(data_types)
+```
+## Target variable
+The data is almost cleaned, it is missing the target variable, from the milestone outline the target will be numeric (1 or 0) and will be calculated as following:
+- if customer earns more than 50000 then qualify = 1
+- else: qualify = 0.
+
+The "Net_Salary", "Annual_Salary", "Gross_Salary" will be explored to identify the most suitable variable to calculate the target. 
+
+### Histogram of the Net salary:
+```{r}
+data_df$Net_Salary <- abs(data_df$Net_Salary)
+data_df$Annual_Salary <- abs(data_df$Annual_Salary)
+data_df$Gross_Salary <- abs(data_df$Gross_Salary)
+```
+
+
+```{r}
+salary_columns <- c("Net_Salary", "Annual_Salary", "Gross_Salary")
+
+colors <- c("blue", "green", "red")
+
+```
+
+```{r}
+
+for (i in seq_along(salary_columns)) {
+  p <- ggplot(data_df, aes_string(x = salary_columns[i])) +
+    geom_histogram(binwidth = 1000, fill = colors[i], color = "black", alpha = 0.7) +
+    labs(title = paste("Histogram of", salary_columns[i]),
+         x =  paste(salary_columns[i], "(k)"),
+         y = "Frequency") +
+    theme_minimal()
+  
+  print(p) 
+}
+```
+The annual and gross salary seem almost identical, this is to be expected as they are very similar in value.
+hence the net salary will be used to calculate the target.
+
+#### TTarget variable:
+
+```{r}
+names(data_df)
+```
+
+```{r}
+# Calculate the Qualify variable
+data_df$Qualify <- ifelse((data_df$Net_Salary * 1000 / 12) >= 50000, 1, 0)
+```
+
+```{r}
+head(data_df[, c("Net_Salary", "Qualify")], n = 10)
+```
+## Bar plot of the final count 
+```{r}
+qualify_counts <- table(data_df$Qualify)
+qualify_percentages <- qualify_counts / sum(qualify_counts) * 100
+qualify_percentages_df <- as.data.frame(qualify_percentages)
+
+colnames(qualify_percentages_df) <- c("Qualify", "Percentage")
+```
+
+
+```{r}
+ggplot(qualify_percentages_df, aes(x = factor(Qualify), y = Percentage)) +
+  geom_bar(stat = "identity", fill = "lightblue", color = "black") +
+  labs(title = "Percentage of Qualify Values",
+       x = "Qualify",
+       y = "Percentage (%)") +
+  theme_minimal() +
+  scale_x_discrete(labels = c("0" = "Not Qualified", "1" = "Qualified")) +
+  geom_text(aes(label = round(Percentage, 1)), vjust = -0.5)
+```
+A 40% to almost 60% in class percentages, suggests that class balancing techniques will not be required; as the two classes are somewhat almost balanced.
+
+# Final structure of the dataset:
+
+```{r}
+column_types <- sapply(data_df, class)
+
+column_info <- data.frame(Column_Name = names(column_types),
+                           Data_Type = column_types,
+                           stringsAsFactors = FALSE)
+print(column_info)
+```
+the data appears to be ready for transformation. The data will be saved in a csv file.
+
+```{r}
+write.csv(data_df, file = "cleaned_cust.csv", row.names = FALSE)
+```
+
+# Final notes on what was done so far
+- Adding data type constraints on the column data
+  - The columns that are expected to be numeric are now numeric; some columns such as "marital_status" are represented numerically as they are categorical.
+- missing values have been imputed using mean for continuous variables and mode for categorical variables.
+- Inconsistent and noisy data has been removed.
+- Some categorical variables that will be used to train the model have been discretized.
+
+#### Missing values have been delt with
+```{r}
+missing_values_summary <- list()
+
+for (col_name in names(data_df)) {
+  total_missing <- sum(is.na(data_df[[col_name]]))
+  
+  missing_values_summary[[col_name]] <- total_missing
+}
+
+missing_values_df <- data.frame(
+  Column = names(missing_values_summary),
+  Total_Missing_Values = unlist(missing_values_summary)
+)
+
+missing_values_df
+```
+

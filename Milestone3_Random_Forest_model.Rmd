@@ -1,0 +1,513 @@
+---
+title: 'Milestone 3: Random Forest Tree'
+author: Nosipho Precious Donkrag, Nontsikelelo Sharon Buhlungu, Tshepang Mogosi, Pitsi
+  Pitsi
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Random Forest Tree
+```{r}
+library(readr)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggcorrplot)
+library(fastDummies)
+library(corrplot)
+```
+
+
+```{r}
+setwd("C:/Users/nosip/Documents/third Year/BIN381/milestones")
+
+```
+
+```{r}
+data_df <- read_csv("data_for_ml.csv", show_col_types = FALSE)
+names(data_df)
+```
+```{r}
+#rename column for naming convention
+colnames(data_df)[13] <- "Education_HS_grad"
+```
+
+The following columns will be converted to factors; witth the aim of determining how they will affect the ml algorithm:
+```{r}
+columns_to_convert <- c("marital_status",  "Qualify",
+                        "Education_Bach.", "Education_HS_grad", "Education_Masters",
+                        "Occupation_Cleric.", "Occupation_Exec.", "Occupation_Prof.", "Occupation_Sales")
+columns_to_convert
+```
+Coversion to factors:
+```{r}
+data_df[columns_to_convert] <- lapply(data_df[columns_to_convert], as.factor)
+```
+
+```{r}
+str(data_df)
+```
+
+## check list
+Before procceeding with the ml algorithm a check list has been created to ensure that the data is ready for the model:
+
+### 1. check for missing values:
+```{r}
+sum(is.na(data_df))
+```
+there are no missing values.
+
+### 2. Scaling Columns:
+
+View the min and max values for each column:
+```{r}
+min_max_df <- data.frame(
+  Min = c(
+    min(data_df$yrs_of_residence, na.rm = TRUE),
+    min(data_df$Annual_Salary, na.rm = TRUE),
+    min(as.numeric(as.character(data_df$Months_Annual)), na.rm = TRUE),
+    min(data_df$FRS.Contribution, na.rm = TRUE),
+    min(data_df$Net_Salary, na.rm = TRUE),
+    min(data_df$Net_months, na.rm = TRUE),
+    min(data_df$Gross_Salary, na.rm = TRUE),
+    min(data_df$Gross_Months, na.rm = TRUE),
+    min(as.numeric(as.character(data_df$household_size)), na.rm = TRUE),
+    min(data_df$age, na.rm = TRUE)
+  ),
+  Max = c(
+    max(data_df$yrs_of_residence, na.rm = TRUE),
+    max(data_df$Annual_Salary, na.rm = TRUE),
+    max(as.numeric(as.character(data_df$Months_Annual)), na.rm = TRUE),
+    max(data_df$FRS.Contribution, na.rm = TRUE),
+    max(data_df$Net_Salary, na.rm = TRUE),
+    max(data_df$Net_months, na.rm = TRUE),
+    max(data_df$Gross_Salary, na.rm = TRUE),
+    max(data_df$Gross_Months, na.rm = TRUE),
+    max(as.numeric(as.character(data_df$household_size)), na.rm = TRUE),
+    max(data_df$age, na.rm = TRUE)
+  ),
+  row.names = c(
+    "yrs_of_residence",  
+    "Annual_Salary",     
+    "Months_Annual",     
+    "FRS.Contribution",  
+    "Net_Salary",        
+    "Net_months",        
+    "Gross_Salary",      
+    "Gross_Months",      
+    "household_size", 
+    "age"
+  )
+)
+
+# View the table
+print(min_max_df)
+
+```
+#### Columns to scale
+The following columns will be scaled due to their continous nature and large range between values:
+- Annual_Salary
+- FRS.Contribution
+- Net_Salary
+- Net_months
+- Gross_Salary
+- Gross_Months
+
+##### Distribution
+The distribution of these columns will be viewed in-order to determine the best normalization function:  
+
+```{r}
+columns_to_distr <- c("Annual_Salary", "FRS.Contribution", "Net_Salary", 
+                     "Net_months", "Gross_Salary", "Gross_Months")
+```
+
+```{r}
+# folr loop to loop through the above columns:
+plot_list <- list()
+
+for (column in columns_to_distr) {
+  p <- ggplot(data_df, aes_string(x = column)) +
+    geom_histogram(binwidth = 50, fill = "skyblue", color = "black", alpha = 0.7) +
+    labs(title = paste("Distribution of", column), x = column, y = "Frequency") +
+    theme_minimal()
+  
+  plot_list[[column]] <- p
+}
+```
+
+
+```{r}
+grid.arrange(grobs = plot_list, ncol = 2)
+```
+
+###### Types of distributions in the dataset:
+
+- Uniform Distribution: The following columns approximate a uniform distribution:
+  - FRS.Contribution
+  - Gross_Salary
+
+- Skewed Distribution (Right skewed) 
+  - Gross_Months
+  - Net_months
+ 
+- Unidentified distribution (min-max scaling)
+  - Net_Salary
+  - Annual_Salary
+ 
+```{r}
+# Unidentified distribution
+min_max_scaling <- function(x) {
+  return((x - min(x)) / (max(x) - min(x)))
+}
+
+# Z-Score Standardization Function (uniform distribution)
+z_score_standardization <- function(x) {
+  return((x - mean(x)) / sd(x))
+}
+
+# Log Function (skewed data)
+log_transformation <- function(x) {
+  return(log(x + 1))  # Adding 1 to avoid log(0)
+}
+```
+
+Scale the following functions:
+```{r}
+data_df <- data_df %>%
+  mutate(
+    FRS.Contribution = min_max_scaling(FRS.Contribution),
+    Gross_Salary = min_max_scaling(Gross_Salary),
+    Gross_Months = z_score_standardization(Gross_Months),
+    Net_months = z_score_standardization(Net_months), 
+    Net_Salary = min_max_scaling(Net_Salary),
+    Annual_Salary = min_max_scaling(Annual_Salary)
+  )
+```
+
+View updated scaled values:
+```{r}
+min_max_df <- data.frame(
+  Min = c(
+    min(data_df$yrs_of_residence, na.rm = TRUE),
+    min(data_df$Annual_Salary, na.rm = TRUE),
+    min(as.numeric(as.character(data_df$Months_Annual)), na.rm = TRUE),
+    min(data_df$FRS.Contribution, na.rm = TRUE),
+    min(data_df$Net_Salary, na.rm = TRUE),
+    min(data_df$Net_months, na.rm = TRUE),
+    min(data_df$Gross_Salary, na.rm = TRUE),
+    min(data_df$Gross_Months, na.rm = TRUE),
+    min(as.numeric(as.character(data_df$household_size)), na.rm = TRUE),
+    min(data_df$age, na.rm = TRUE)
+  ),
+  Max = c(
+    max(data_df$yrs_of_residence, na.rm = TRUE),
+    max(data_df$Annual_Salary, na.rm = TRUE),
+    max(as.numeric(as.character(data_df$Months_Annual)), na.rm = TRUE),
+    max(data_df$FRS.Contribution, na.rm = TRUE),
+    max(data_df$Net_Salary, na.rm = TRUE),
+    max(data_df$Net_months, na.rm = TRUE),
+    max(data_df$Gross_Salary, na.rm = TRUE),
+    max(data_df$Gross_Months, na.rm = TRUE),
+    max(as.numeric(as.character(data_df$household_size)), na.rm = TRUE),
+    max(data_df$age, na.rm = TRUE)
+  ),
+  row.names = c(
+    "yrs_of_residence",  
+    "Annual_Salary",     
+    "Months_Annual",     
+    "FRS.Contribution",  
+    "Net_Salary",        
+    "Net_months",        
+    "Gross_Salary",      
+    "Gross_Months",      
+    "household_size", 
+    "age"
+  )
+)
+
+# View the table
+print(min_max_df)
+```
+
+## Split the data set for the model
+- Training
+- Testing
+- Validation
+
+```{r}
+set.seed(123) 
+total_rows <- nrow(data_df)
+
+#split data 70-30
+train_indices <- sample(1:total_rows, 0.7 * total_rows)
+train_data <- data_df[train_indices, ]
+
+remaining_indices <- setdiff(1:total_rows, train_indices)
+
+#testing and validation will each make up 15%
+validation_indices <- sample(remaining_indices, 0.5 * length(remaining_indices)) 
+
+test_indices <- setdiff(remaining_indices, validation_indices)
+
+validation_data <- data_df[validation_indices, ]
+test_data <- data_df[test_indices, ]
+
+```
+
+```{r}
+cat("Training data size:", nrow(train_data), "\n")
+cat("Validation data size:", nrow(validation_data), "\n")
+cat("Testing data size:", nrow(test_data), "\n")
+```
+Dataset successfully split!
+
+## Initialise the rf model
+```{r}
+library(randomForest)
+library(caret)
+```
+
+Define a formula for the rf classifier:
+```{r}
+formula <- Qualify ~ marital_status + household_size + yrs_of_residence + 
+  Annual_Salary + Months_Annual + FRS.Contribution + 
+  Net_Salary + Net_months + Gross_Salary + Gross_Months + 
+  Education_Bach. + Education_HS_grad + Education_Masters + 
+  Occupation_Cleric. + Occupation_Exec. + Occupation_Prof. + 
+  Occupation_Sales + age
+```
+
+### Train the rf-model:
+```{r}
+model <- randomForest(formula, data = train_data)
+
+```
+
+## Test model performance using the Test set
+Make predictions to evaluate the performance of the model.
+```{r}
+predictions <- predict(model, newdata = test_data)
+```
+
+### Create a Confusion Matrix
+The confusion matrix here is utilized as a performance measurement tool. It will be used as one of the tools that determine how well the classification model performs.
+```{r}
+# Create confusion matrix
+confusion_matrix <- confusionMatrix(predictions, test_data$Qualify)
+print(confusion_matrix)
+```
+Tabulate some of the output from the confusion matrix:
+```{r}
+# Create confusion matrix
+confusion_matrix <- table(
+  Actual = test_data$Qualify,
+  Predicted = predictions
+)
+
+formatted_confusion_matrix <- matrix(0, nrow = 2, ncol = 2)
+rownames(formatted_confusion_matrix) <- c("Actual Positive (Yes)", "Actual Negative (No)")
+colnames(formatted_confusion_matrix) <- c("Predicted Positive (Yes)", "Predicted Negative (No)")
+
+# Fill
+formatted_confusion_matrix[1, 1] <- confusion_matrix["1", "1"]
+formatted_confusion_matrix[1, 2] <- confusion_matrix["1", "0"]
+formatted_confusion_matrix[2, 1] <- confusion_matrix["0", "1"]
+formatted_confusion_matrix[2, 2] <- confusion_matrix["0", "0"]
+
+# Convert row and column names to "Yes" and "No"
+rownames(formatted_confusion_matrix) <- c("Actual Positive (Yes)", "Actual Negative (No)")
+colnames(formatted_confusion_matrix) <- c("Predicted Positive (Yes)", "Predicted Negative (No)")
+
+# View the formatted confusion matrix
+print(formatted_confusion_matrix)
+
+```
+### Interpretation of results
+- True positives: These are areas where the model correctly predicted yes (9141).
+- Under predicted negatives (True negatives), we see that the model did not predict negative values as positive.
+Just from these two readings we see that the model did not miss classify.It has a good recall and precision.
+
+#### Interpreting the metrices from the confusion report
+- Accuracy (100%): The model correctly identifies all records in the data set.
+
+- Confidence Interval (95%): With 95% confidence, it can be stated that the true accuracy of the model falls between 99.98% and 100%.
+
+- P-value (<2.2e^-16):
+  - This low p-values suggests that the accuracy of the model is better than what we would get from random chance.
+
+The models metrices so far are excellent which is rather suspicious. Hence, before proceeding to the testing; the balanace of the classes will be checked with the aim of identifying if the classes are balanced.
+
+### Checking for class imbalance
+Class imbalance can lead to high accuracy scores of one class dominates another.If there is a dominating class sampling techniques will be required (under-sampling or over-sampling):
+```{r}
+class_counts <- table(train_data$Qualify)
+```
+
+```{r}
+ggplot(data = as.data.frame(class_counts), aes(x = Var1, y = Freq)) +
+  geom_bar(stat = "identity", fill = "yellow") +
+  labs(title = "Class Distribution in Training Data",
+       x = "Class",
+       y = "Count") +
+  theme_minimal()
+```
+
+```{r}
+class_percentages <- prop.table(class_counts) * 100
+class_percentages
+```
+The difference in the classes is not significantly large as to require balancing techniques.
+
+## Validate the models performace using the Validation set
+```{r}
+validation_predictions <- predict(model, newdata = validation_data)
+
+validation_confusion_matrix <- table(Actual = validation_data$Qualify, Predicted = validation_predictions)
+
+```
+
+Performance Metrics:
+```{r}
+accuracy_val <- sum(diag(validation_confusion_matrix)) / sum(validation_confusion_matrix)
+sensitivity_val <- validation_confusion_matrix[2, 2] / sum(validation_confusion_matrix[2, ]) 
+specificity_val <- validation_confusion_matrix[1, 1] / sum(validation_confusion_matrix[1, ])
+precision_val <- validation_confusion_matrix[2, 2] / sum(validation_confusion_matrix[, 2]) 
+recall_val <- sensitivity_val 
+f1_score_val <- 2 * (precision_val * recall_val) / (precision_val + recall_val)
+```
+
+```{r}
+cat("Validation Performance Metrics:\n")
+cat("Accuracy:", round(accuracy_val, 4), "\n")
+cat("Sensitivity (Recall):", round(sensitivity_val, 4), "\n")
+cat("Specificity:", round(specificity_val, 4), "\n")
+cat("Precision:", round(precision_val, 4), "\n")
+cat("F1 Score:", round(f1_score_val, 4), "\n")
+```
+They are all 100%, this could suggest over-fitting. 
+hence the next stage is to drop the column used to generate the target column.
+
+## drop the Net_Salary column
+The net salary column was used to identify qualifying customers; hence dropping it could fix the over-fitting problem. as the suspicion is that over-fitting is due to this feature causing leakage.
+
+```{r}
+train_data <- train_data[, !names(train_data) %in% "Net_Salary"]
+validation_data <- validation_data[, !names(validation_data) %in% "Net_Salary"]
+test_data <- test_data[, !names(test_data) %in% "Net_Salary"]
+```
+
+Retrain the model and predict:
+```{r}
+model_retrained <- randomForest(Qualify ~ ., data = train_data)
+
+# Validate the model again using the validation set
+validation_predictions_retrained <- predict(model_retrained, newdata = validation_data)
+
+```
+
+```{r}
+validation_confusion_matrix_retrained <- table(Actual = validation_data$Qualify, Predicted = validation_predictions_retrained)
+```
+
+performance metrics:
+```{r}
+accuracy_retrained <- sum(diag(validation_confusion_matrix_retrained)) / sum(validation_confusion_matrix_retrained)
+sensitivity_retrained <- validation_confusion_matrix_retrained[2, 2] / sum(validation_confusion_matrix_retrained[2, ])
+specificity_retrained <- validation_confusion_matrix_retrained[1, 1] / sum(validation_confusion_matrix_retrained[1, ])
+precision_retrained <- validation_confusion_matrix_retrained[2, 2] / sum(validation_confusion_matrix_retrained[, 2])
+recall_retrained <- sensitivity_retrained
+f1_score_retrained <- 2 * (precision_retrained * recall_retrained) / (precision_retrained + recall_retrained)
+
+```
+
+```{r}
+cat("Accuracy:", round(accuracy_retrained * 100, 2), "%\n")
+cat("Sensitivity (Recall):", round(sensitivity_retrained * 100, 2), "%\n")
+cat("Specificity:", round(specificity_retrained * 100, 2), "%\n")
+cat("Precision:", round(precision_retrained * 100, 2), "%\n")
+cat("F1 Score:", round(f1_score_retrained * 100, 2), "%\n")
+```
+### Metrics Interpretation
+Accuracy (88.04%):
+- The model correctly predicted 87% of the total records in the validation set. The classes are slightly imbalanced but not significantly as to highly affect the accuracy score.
+
+- Recall (Sensitivity) (81.5%):
+  - The model's ability to correctly classify positive (1) records. The model correctly identified 81% of True positives.
+  - Which means 18.5% of true positives we predicted to be negative.
+  - The model correctly identified 81.5% of customers who qualify for the service.
+  
+- Specificity (92.25%):
+  - The models ability to classify true negatives.
+  - the model successfully identified 95% of applicants who do not qualify for the service.
+  
+- Precision (87.76%):
+   - This is the measure of the accuracy of positive predictions.
+   
+- F1 Score (84.51%):
+This is the true measure of the performance of the model. it is the harmonic mean of precision and sensitivity. An 84% F1-Score indicates a solid model performance in predicting customer who qualify for the service and those who do not.
+
+The RF model was successfully implemented.
+
+##ft importance 
+Plot the feature importance to close off this section:
+```{r}
+# Extract feature importance
+importance_values <- importance(model_retrained)
+
+```
+
+Gini Importance:
+```{r}
+importance_df <- data.frame(
+  Feature = rownames(importance_values),
+  GiniImportance = importance_values[, "MeanDecreaseGini"]  
+)
+```
+
+```{r}
+#colour map for plot
+library(viridis)
+```
+
+```{r}
+ggplot(importance_df, aes(x = reorder(Feature, GiniImportance), y = GiniImportance, fill = GiniImportance)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +  # Flip for better readability
+  labs(
+    title = "Feature Importance (Gini) from Random Forest",
+    x = "Features",
+    y = "Gini Importance"
+  ) +
+  scale_fill_viridis(
+    option = "magma",  # Use the magma colormap
+    name = "Importance"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+```{r}
+saveRDS(model_retrained, "retrained_rf_model.rds")
+```
+
+The Random forest model has been successfully saved.
+
+## save final form of data into a csv
+
+```{r}
+print(names(data_df))
+```
+ drop the column net_salary that i causing leaky features
+```{r}
+data_df <- data_df[ , !names(data_df) %in% "Net_Salary"]
+```
+ 
+save final data form:
+```{r}
+write.csv(data_df, "final_data_form.csv", row.names = FALSE)
+```
+

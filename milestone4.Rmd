@@ -1,0 +1,393 @@
+---
+title: 'Milestone 4: Model Analysis'
+author: Nosipho Precious Donkrag, Nontsikelelo Sharon Buhlungu, Tshepang Mogosi, Pitsi
+  Pitsi
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(readr)
+library(ggplot2)
+library(gridExtra)
+library(dplyr)
+library(ggcorrplot)
+library(fastDummies)
+library(corrplot)
+library(randomForest)
+library(caret)
+library(caret)
+
+```
+
+```{r}
+setwd('C:/Users/nosip/Documents/third Year/BIN381/milestones')
+```
+
+
+## Model Assessment: Random Forest Model
+The following Milestone will be dedicated to the tuning of the already trained  random forest model with the aim of improving the accuracy and precision of the model.
+
+###Read the data
+Read in the data that has been prepared for the random forest (rf) model:
+```{r}
+data_df <- read.csv("final_data_form.csv",
+                    header = TRUE)
+```
+
+```{r}
+names(data_df)
+```
+View the structure to ensure that the data types are as expected (only numeric).
+```{r}
+str(data_df)
+```
+The data types for the columns are as expected.
+The Gross Months and Net Months have been previously normalised and scaled; hence some values are negative; this is to be expected.
+
+The histograms below show the columns before they were scaled: 
+```{r}
+data_b4_scaling <- read.csv("data_for_ml.csv", header = TRUE)
+
+```
+
+```{r}
+columns_to_distr <- c("Annual_Salary", "FRS.Contribution",
+"Net_months", "Gross_Salary", "Gross_Months")
+
+# folr loop to loop through the above columns:
+plot_list <- list()
+for (column in columns_to_distr) {
+p <- ggplot(data_b4_scaling, aes_string(x = column)) +
+geom_histogram(binwidth = 50, fill = "turquoise", color = "black", alpha = 0.7) +
+labs(title = paste("Distribution of", column), x = column, y = "Frequency") +
+theme_minimal()
+plot_list[[column]] <- p
+}
+grid.arrange(grobs = plot_list, ncol = 2)
+```
+However in milestone 3, the data was scaled appropriately.
+
+### Split the data
+The data will be split as following:
+- Training
+- Testing
+- Validation
+```{r}
+#split the data
+set.seed(123)
+total_rows <- nrow(data_df)
+#split data 70-30
+train_indices <- sample(1:total_rows, 0.7 * total_rows)
+train_data <- data_df[train_indices, ]
+remaining_indices <- setdiff(1:total_rows, train_indices)
+#testing and validation will each make up 15%
+validation_indices <- sample(remaining_indices, 0.5 * length(remaining_indices))
+test_indices <- setdiff(remaining_indices, validation_indices)
+validation_data <- data_df[validation_indices, ]
+test_data <- data_df[test_indices, ]
+
+```
+
+
+```{r}
+cat("Training data size:", nrow(train_data), "\n")
+```
+```{r}
+cat("Validation data size:", nrow(validation_data), "\n")
+```
+```{r}
+cat("Testing data size:", nrow(test_data), "\n")
+
+```
+### The rf Model (Max Depth Tuning)
+The first parameter that will be tuned is the max-depth parameter of the tree; this will restrict how deep the trees go and this parameter will help with reducing over fitting.
+```{r}
+formula <- Qualify ~ marital_status + household_size + yrs_of_residence +
+Annual_Salary + Months_Annual + FRS.Contribution + Net_months + Gross_Salary + Gross_Months +
+Education_Bach. + Education_HS_grad + Education_Masters +
+Occupation_Cleric. + Occupation_Exec. + Occupation_Prof. +
+Occupation_Sales + age
+
+```
+
+
+```{r}
+#metrices
+depth_values <- c(90, 95) 
+accuracy_scores <- c()
+f1_scores <- c()
+```
+
+convert Qualify to factors; because in its numeric form the model assumes a regression nature.
+```{r}
+train_data$Qualify <- as.factor(train_data$Qualify)
+validation_data$Qualify <- as.factor(validation_data$Qualify)
+test_data$Qualify <- as.factor(test_data$Qualify)
+```
+
+
+
+```{r}
+for (depth in depth_values) {
+  # Train the random forest model with the current depth
+  model <- randomForest(formula, data = train_data, maxnodes = depth)
+  
+  # Make predictions on the validation dataset
+  predictions <- predict(model, newdata = validation_data)
+  
+  # Convert predictions to factors to match the validation data's Qualify column
+  predictions <- as.factor(predictions)
+  
+  # Calculate the confusion matrix
+  confusion_matrix <- confusionMatrix(predictions, validation_data$Qualify)
+  
+  # Extract Accuracy from confusion matrix
+  accuracy_scores <- c(accuracy_scores, confusion_matrix$overall['Accuracy'])
+  
+  # Extract F1 score from confusion matrix (using 'F1' method from caret)
+  f1_scores <- c(f1_scores, confusion_matrix$byClass['F1'])
+}  
+```
+
+```{r}
+# Plot F1 Score vs Max Depth
+plot(depth_values, f1_scores, type = "o", col = "blue", 
+     xlab = "Max Depth", ylab = "F1 Score", 
+     main = "F1 Score at Different Depths")
+
+# Plot Accuracy vs Max Depth
+plot(depth_values, accuracy_scores, type = "o", col = "green", 
+     xlab = "Max Depth", ylab = "Accuracy", 
+     main = "Accuracy at Different Depths")
+```
+The tree depth was cycled from 0 to 95. As the depth increases; it  increases the accuracy score and F1 score. However, this is a slow increase; hence the next attempt will be to tune the features from the previously generated Gini Feature importance from Milestone 3.
+
+## Feature Tuning (Gini Importance)
+
+![Ft importance](ft_imp.png)
+
+```{r}
+names(data_df)
+```
+from the above Gini importance the following columns appear to have little impact on the model; hence they will be dropped:
+- marital_status
+- yrs_of_residence
+- Occupation_Sales
+- Education_Bach.
+- Education_Masters
+- Occupation_Prof.
+- household_size
+- Education_HS_grad
+- Occupation_Exec.
+- Occupation_Exec.
+
+## Drop columns with low Gini importance
+```{r}
+# Drop the specified columns
+data_df <- data_df %>%
+  select(-marital_status, -yrs_of_residence, -Occupation_Sales, 
+         -Education_Bach., -Education_Masters, -Occupation_Prof., 
+         -household_size, -Education_HS_grad, -Occupation_Exec.)
+
+```
+
+### Split Data
+```{r}
+#split the data
+set.seed(123)
+total_rows <- nrow(data_df)
+#split data 70-30
+train_indices <- sample(1:total_rows, 0.7 * total_rows)
+train_data <- data_df[train_indices, ]
+remaining_indices <- setdiff(1:total_rows, train_indices)
+#testing and validation will each make up 15%
+validation_indices <- sample(remaining_indices, 0.5 * length(remaining_indices))
+test_indices <- setdiff(remaining_indices, validation_indices)
+validation_data <- data_df[validation_indices, ]
+test_data <- data_df[test_indices, ]
+```
+
+define formula without the columns:
+```{r}
+# Updated formula
+formula <- Qualify ~ Annual_Salary + Months_Annual + FRS.Contribution + Net_months + Gross_Salary + Gross_Months +
+Occupation_Cleric. + age
+
+```
+
+```{r}
+#metrices
+depth_values <- c(40, 45) 
+accuracy_scores <- c()
+f1_scores <- c()
+```
+
+convert Qualify to factors; because in its numeric form the model assumes a regression nature.
+```{r}
+train_data$Qualify <- as.factor(train_data$Qualify)
+validation_data$Qualify <- as.factor(validation_data$Qualify)
+test_data$Qualify <- as.factor(test_data$Qualify)
+```
+
+### Train the model again
+
+```{r}
+for (depth in depth_values) {
+  # Train the random forest model with the current depth
+  model <- randomForest(formula, data = train_data, maxnodes = depth)
+  
+  # Make predictions on the validation dataset
+  predictions <- predict(model, newdata = validation_data)
+  
+  # Convert predictions to factors to match the validation data's Qualify column
+  predictions <- as.factor(predictions)
+  
+  # Calculate the confusion matrix
+  confusion_matrix <- confusionMatrix(predictions, validation_data$Qualify)
+  
+  # Extract Accuracy from confusion matrix
+  accuracy_scores <- c(accuracy_scores, confusion_matrix$overall['Accuracy'])
+  
+  # Extract F1 score from confusion matrix (using 'F1' method from caret)
+  f1_scores <- c(f1_scores, confusion_matrix$byClass['F1'])
+}  
+```
+
+```{r}
+# Plot F1 Score vs Max Depth
+plot(depth_values, f1_scores, type = "o", col = "blue", 
+     xlab = "Max Depth", ylab = "F1 Score", 
+     main = "F1 Score at Different Depths")
+
+# Plot Accuracy vs Max Depth
+plot(depth_values, accuracy_scores, type = "o", col = "green", 
+     xlab = "Max Depth", ylab = "Accuracy", 
+     main = "Accuracy at Different Depths")
+```
+The F1 score and accuracy increased; up until a max depth of 40 (accuracy = 71%; f1-score = 80%); after this accuracy consistently decreased; while the f1-score increased.
+The Aim is to strike a balance between these two metrices.
+
+## Number of Trees Parameter
+The next parameter to tune is the Number of trees parameter;along with the depth.
+```{r}
+depth_values <- c(80, 85)  
+trees_values <- c(150, 200) 
+
+accuracy_scores <- list()
+f1_scores <- list()
+```
+
+```{r}
+
+# Loop through each depth
+for (depth in depth_values) {
+  
+  # Store metrics for each depth
+  accuracy_depth <- c()
+  f1_depth <- c()
+  
+  # Loop through each number of trees
+  for (num_trees in trees_values) {
+    
+    # Train the Random Forest model with current depth and number of trees
+    model <- randomForest(formula, data = train_data, maxnodes = depth, ntree = num_trees)
+    
+    # Make predictions on the validation dataset
+    predictions <- predict(model, newdata = validation_data)
+    
+    # Calculate confusion matrix
+    confusion_matrix <- confusionMatrix(predictions, validation_data$Qualify)
+    
+    # Extract accuracy and F1 score
+    accuracy_depth <- c(accuracy_depth, confusion_matrix$overall['Accuracy'])
+    f1_depth <- c(f1_depth, confusion_matrix$byClass['F1'])
+  }
+  
+  # Store the accuracy and F1 scores for this depth
+  accuracy_scores[[as.character(depth)]] <- accuracy_depth
+  f1_scores[[as.character(depth)]] <- f1_depth
+  
+  # Plot accuracy vs. number of trees for this depth
+  plot(trees_values, accuracy_depth, type = "o", col = "blue", 
+       xlab = "Number of Trees", ylab = "Accuracy", 
+       main = paste("Accuracy vs. Number of Trees (Depth =", depth, ")"))
+  
+  # Plot F1 score vs. number of trees for this depth
+  plot(trees_values, f1_depth, type = "o", col = "red", 
+       xlab = "Number of Trees", ylab = "F1 Score", 
+       main = paste("F1 Score vs. Number of Trees (Depth =", depth, ")"))
+}
+```
+The highest accuracy score is 74% at a depth of 85; and a number of trees of 150.This also correlated with the highest f1 score of 82%. However; these do not beat the original untuned model that will be given below.
+
+## Original untuned Model
+
+```{r}
+model_retrained <- randomForest(Qualify ~ ., data = train_data)
+
+```
+
+```{r}
+# Validate the model again using the validation set
+validation_predictions_retrained <- predict(model_retrained, newdata = validation_data)
+```
+
+```{r}
+validation_confusion_matrix_retrained <- table(Actual = validation_data$Qualify, Predicted = validation_predictions_retrained)
+```
+
+performance metrics:
+```{r}
+accuracy_retrained <- sum(diag(validation_confusion_matrix_retrained)) / sum(validation_confusion_matrix_retrained)
+sensitivity_retrained <- validation_confusion_matrix_retrained[2, 2] / sum(validation_confusion_matrix_retrained[2, ])
+specificity_retrained <- validation_confusion_matrix_retrained[1, 1] / sum(validation_confusion_matrix_retrained[1, ])
+precision_retrained <- validation_confusion_matrix_retrained[2, 2] / sum(validation_confusion_matrix_retrained[, 2])
+recall_retrained <- sensitivity_retrained
+f1_score_retrained <- 2 * (precision_retrained * recall_retrained) / (precision_retrained + recall_retrained)
+
+```
+
+```{r}
+cat("Accuracy:", round(accuracy_retrained * 100, 2), "%\n")
+cat("Sensitivity (Recall):", round(sensitivity_retrained * 100, 2), "%\n")
+cat("Specificity:", round(specificity_retrained * 100, 2), "%\n")
+cat("Precision:", round(precision_retrained * 100, 2), "%\n")
+cat("F1 Score:", round(f1_score_retrained * 100, 2), "%\n")
+```
+### Metrics Interpretation
+Accuracy (88.04%):
+- The model correctly predicted 87% of the total records in the validation set. The classes are slightly imbalanced but not significantly as to highly affect the accuracy score.
+
+- Recall (Sensitivity) (81.5%):
+  - The model's ability to correctly classify positive (1) records. The model correctly identified 81% of True positives.
+  - Which means 18.5% of true positives we predicted to be negative.
+  - The model correctly identified 81.5% of customers who qualify for the service.
+  
+- Specificity (92.25%):
+  - The models ability to classify true negatives.
+  - the model successfully identified 95% of applicants who do not qualify for the service.
+  
+- Precision (87.76%):
+   - This is the measure of the accuracy of positive predictions.
+   
+- F1 Score (84.51%):
+This is the true measure of the performance of the model. it is the harmonic mean of precision and sensitivity. An 84% F1-Score indicates a solid model performance in predicting customer who qualify for the service and those who do not.
+
+#### The original model performs better than the tuned model. hence we will be continuing with the original model.
+```{r}
+print(names(data_df))
+```
+## Save updated model
+```{r}
+saveRDS(model_retrained, "retrained_rf_model2.rds")
+```
+
+## Conclusion
+The tuning of the Random Forest model through adjusting both depth and number of trees yielded the highest accuracy of 74% at a depth of 85 with 150 trees. This also correlated with the highest F1 score of 82%. These improvements indicate that careful tuning can lead to better performance of the model.
+
+However; the original un-tuned model; with the newly dropped column that have a low feature importance score; still outperformed the tuned model. Hence, the original model will be carried on to the next milestones.
